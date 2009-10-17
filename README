@@ -22,3 +22,38 @@ Example Usage:
 			top: {duration: 250}
 		}
 	})
+
+
+Including in your SproutCore Project
+===============================================================================
+First, if you know what you are doing, or just want to hack it, you can just
+take the one (and only) code file, core.js, rename it, put it somewhere, whatever.
+Though that won't keep you up-to-date with any improvements...
+
+
+Getting the Code Using git:
+> Navigate to your SproutCore project folder (the one that contains apps/, under 
+which your application is located).
+
+> git clone git://github.com/ialexi/animate.git
+
+Getting the Code through GitHub:
+Go to http://github.com/ialexi/animate and select download. Download in whichever
+format you prefer.
+
+Navigate to your SproutCore project folder; if there is no subfolder "frameworks",
+create one. Under the "frameworks" folder, create a folder "animate".
+
+Place the files that were extracted (not the containing folder) into the "animate"
+folder you created.
+
+
+Installing
+===============================================================================
+In your Buildfile, there is a line like this:
+config :all, :required => :sproutcore
+
+Add the animate framework to it by changing it to this:
+config :all, :required => [:sproutcore, :animate]
+
+Now, you should be able to use it in any view, as demonstrated above!
