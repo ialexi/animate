@@ -1,0 +1,24 @@
+A simple mixin called Animatable is provided. What does it do?
+It makes CSS transitions for you, and if they aren't available,
+implements them in JavaScript.
+
+Current good things:
+	- Seems to work!
+	- Animates 300 SC.LabelViews acceptably with only JavaScript. Animates >500
+	  just as well (if not better) with CSS transitions.
+	- Automatically detects if CSS transitions are available.
+	
+Current flaws:
+	- Likely somewhat buggy. Haven't seen any bugs, though... Please tell me.
+	- Not very configurable. Should at LEAST allow (preset) interpolation
+	  functions.
+	- No support for changing non-layout properties such as color.
+	
+Example Usage:
+
+	aView: SC.LabelView.design(Animate.Animatable, {
+		transitionLayout: {
+			left: {duration: 250},
+			top: {duration: 250}
+		}
+	})
