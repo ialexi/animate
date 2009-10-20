@@ -38,7 +38,42 @@ Animate = SC.Object.create(
 
 	NAMESPACE: 'Animate',
 	VERSION: '0.1.0',
-
+	
+	// I'm about to hack a very poor memory-wise, but hopefully fast CPU-wise, thingy.
+	baseTimer: {
+		next: null
+	},
+	going: false,
+	interval: 10,
+	addTimer: function(animator)
+	{
+		animator.next = Animate.baseTimer.next;
+		Animate.baseTimer.next = animator;
+		if (!Animate.going)
+			Animate.timeout();
+	},
+	
+	timeout: function()
+	{
+		var start = Date.now();
+		Animate.going = true;
+		var next = Animate.baseTimer.next;
+		Animate.baseTimer.next = null;
+		while (next)
+		{
+			var t = next.next;
+			next.action.call(next);
+			next = t;
+		}
+		
+		var elapsed = Date.now() - start;
+		if (Animate.baseTimer.next)
+			setTimeout(function(){ Animate.timeout(); }, Math.max(0, Animate.interval - elapsed));
+		else
+			Animate.going = false;
+	},
+	
+	
 	Animatable: {
 		transitionLayout: {},
 		concatenatedProperties: ["transitionLayout"],
@@ -51,6 +86,7 @@ Animate = SC.Object.create(
 		
 		initMixin: function()
 		{
+			this._animateTickPixel.displayName = "animate-tick";
 			// if transitionLayout was concatenated...
 			if (SC.isArray(this.transitionLayout))
 			{
@@ -68,14 +104,23 @@ Animate = SC.Object.create(
 		},
 		
 		/**
-			Returns a starting hash with all terms in the target
-			layout defined, for use in interpolation.
+			Returns a starting hash based on the previous layout (start), but
+			put in terms of the new (current) layout.
+			
+			NOTE: will temporarily change this.layout to start.
 		*/
-		_animatableStartLayoutHash: function(target)
+		_animatableStartLayoutHash: function(start)
 		{
+			// temporarily set layout to "start", in the fastest way possible:
+			var target = this.layout;
+			this.layout = start;
+			
 			// get our frame and parent's frame
 			var f = this.get("frame");
 			var p = this.getPath("parentView.frame");
+			
+			// set back to target
+			this.layout = target;
 			
 			// prepare a new layout, empty.
 			var l = {};
@@ -115,12 +160,9 @@ Animate = SC.Object.create(
 		Overriden to support animation.
 		
 		Works by keeping a copy of the current layout, called animatableCurrentLayout.
-		Whenever layout is changed, the new value is stored in "target", the "layout"
-		property is reset to the animatableCurrentLayout, and animatable properties
-		interpolate between the (original) animatableCurrentLayout and "target".
+		Whenever the layout needs updating, the old layout is consulted.
 		
-		Note that this interpolation updates animatableCurrentLayout; the start values
-		for any interpolations are actually stored in the animator hash.
+		"layout" is kept at the new layout
 		*/
 		updateLayout: function(context, firstTime)
 		{
@@ -139,30 +181,30 @@ Animate = SC.Object.create(
 			if (SC.isEqual(newLayout, this._animatableCurrentLayout))
 				return;
 			
-			// reset layout
-			this.set("layout", this._animatableCurrentLayout);
-			
 			// get normalized start
-			var normalizedStart = this._animatableStartLayoutHash(newLayout);
+			var normalizedStart = this._animatableStartLayoutHash(this._animatableCurrentLayout);
 			var cssTransitions = [];
-			// stop any old animations
+			var layer = this.get("layer");
+			
 			for (var i in newLayout)
 			{
+				// stop any old animations
 				if (this._animators[i])
 				{
-					this._animators[i].timer.invalidate();
-					this._animators[i].timer.destroy();
+					this._animators[i].invalidate();
+					this._animators[i].destroy();
+					delete this._animators[i];
 				}
 				
-				// if it needs to be set right away since it is not animatable, it will
-				// have been. But if we choose not to animate it... that's a different story.
-				// just add it to normalized start so it will be set immediately.
+				// if it needs to be set right away since it is not animatable, _animatableStartHash
+				// will have done that. But if we aren't supposed to animate it, we need to know, now.
 				if (!this.transitionLayout[i] || newLayout[i] == normalizedStart[i])
 				{
 					normalizedStart[i] = newLayout[i];
 					continue;
 				}
 				
+				// If there is an available CSS transition, use that.
 				if (this._animatableCSSTransitions && this._cssTransitionFor[i])
 				{
 					cssTransitions.push(this._cssTransitionFor[i] + " " + (this.transitionLayout[i].duration / 1000) + "s linear");
@@ -178,27 +220,30 @@ Animate = SC.Object.create(
 					startValue: normalizedStart[i],
 					endValue: newLayout[i],
 					timer: undefined,
-					property: i
+					property: i,
+					layer: layer,
+					action: this._animateTickPixel,
+					layout: this._animatableCurrentLayout
 				};
 				
-				animator.timer = SC.Timer.schedule({
-					target: this,
-					action: function(animator) {
-						return function(){ this._animatableAnimationStep(animator); };
-					}(animator),
+				// add timer
+				Animate.addTimer(animator);
+				continue;
+				
+				this._animators[i] = SC.Timer.schedule({
+					target: animator,
+					action: this._animateTickPixel,
 					interval: 10,
 					repeats: YES,
 					until: animator.end
 				});
 			}
+			this._animatableLayoutUpdate(normalizedStart);
+			
 			
 			// and update layout to the normalized start.
 			var css = cssTransitions.join(",");
 			this._animatableSetCSS = css;
-			
-			this.set("layout", normalizedStart);
-			
-			this._animatableLayoutUpdate();
 
 			// all our timers are scheduled, we should be good to go. YAY.
 			return this;
@@ -206,36 +251,56 @@ Animate = SC.Object.create(
 		
 		/**
 			Manages a single step in a single animation.
+			NOTE: this=>an animator hash
 		*/
-		_animatableAnimationStep: function(a)
+		_animateTickPixel: function()
 		{
 			// prepare timing stuff
-			var s = a.start, e = a.end;
+			var s = this.start, e = this.end;
+			var sv = this.startValue, ev = this.endValue;
 			var d = e - s;
+			var dv = ev - sv;
 
 			// get current
-			var c = Date.now() - s;
-			var percent = c / d;
-
-			// Now, interpolate between start layout and end layout
-			var value = a.startValue + ((a.endValue - a.startValue) * percent);
-			this.layout[a.property] = value;
+			var t = Date.now();
+			var c = t - s;
+			var percent = Math.min(c / d, 1);
 			
-			// trigger update
-			this._animatableLayoutUpdate();
-
-			// update current layout
-			this._animatableCurrentLayout = this.layout;
+			// todo: call interpolation function, if any, here
+			
+			// calculate new position			
+			// WAY 1: Modify style directly
+			var value = sv + (dv * percent);
+			this.layout[this.property] = value; //this.layout => the real this._animatableCurrentLayout
+			this.layer.style[this.property] = value + "px";
+			
+			if (t < this.end)
+				Animate.addTimer(this);
+		},
+		
+		_animateTickCenterX: function(a)
+		{
+			
+		},
+		
+		_animateTickCenterY: function(a)
+		{
+			
 		},
 		
 		/**
-			Triggers a layout re-rendering.
+			Triggers a layout re-rendering with specified layout. Does not change layout.
+			TODO: override renderLayout so that it can take a layout parameter for us, so
+			we don't keep changing layout like this.
 		*/
-		_animatableLayoutUpdate: function()
+		_animatableLayoutUpdate: function(layout)
 		{
+			var prev = this.layout;
+			this.layout = layout;
+			
 			// set layout
 			this.notifyPropertyChange("layoutStyle");
-			
+ 
 			// notify of update
 			var layer = this.get("layer");
 			if (layer) {
@@ -244,6 +309,8 @@ Animate = SC.Object.create(
 				context.addStyle("-webkit-transition", this._animatableSetCSS);
 				context.update();
 			}
+			
+			this.layout = prev;
 		}
 	}
 
@@ -253,7 +320,7 @@ Animate = SC.Object.create(
 	Test for CSS transition capability...
 */
 (function(){
-	var test = function(){
+	var test = function(){ return false;
 		// a test element
 		var el = document.createElement("div");
 
