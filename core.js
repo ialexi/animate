@@ -228,22 +228,14 @@ Animate = SC.Object.create(
 				
 				// add timer
 				Animate.addTimer(animator);
-				continue;
-				
-				this._animators[i] = SC.Timer.schedule({
-					target: animator,
-					action: this._animateTickPixel,
-					interval: 10,
-					repeats: YES,
-					until: animator.end
-				});
 			}
-			this._animatableLayoutUpdate(normalizedStart);
-			
 			
 			// and update layout to the normalized start.
 			var css = cssTransitions.join(",");
 			this._animatableSetCSS = css;
+			
+			this._animatableLayoutUpdate(normalizedStart);
+			this._animatableCurrentLayout = normalizedStart;
 
 			// all our timers are scheduled, we should be good to go. YAY.
 			return this;
@@ -320,7 +312,7 @@ Animate = SC.Object.create(
 	Test for CSS transition capability...
 */
 (function(){
-	var test = function(){ return false;
+	var test = function(){// return false;
 		// a test element
 		var el = document.createElement("div");
 
