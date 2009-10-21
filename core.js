@@ -51,6 +51,7 @@ Animate = SC.Object.create(
 		Animate.baseTimer.next = animator;
 		if (!Animate.going)
 			Animate.timeout();
+		animator.going = true;
 	},
 	
 	timeout: function()
@@ -59,11 +60,14 @@ Animate = SC.Object.create(
 		Animate.going = true;
 		var next = Animate.baseTimer.next;
 		Animate.baseTimer.next = null;
+		var i = 0;
 		while (next)
 		{
 			var t = next.next;
+			next.next = null;
 			next.action.call(next);
 			next = t;
+			i++;
 		}
 		
 		var elapsed = Date.now() - start;
@@ -78,7 +82,7 @@ Animate = SC.Object.create(
 		transitionLayout: {},
 		concatenatedProperties: ["transitionLayout"],
 		
-		_animatableCSSTransitions: false,
+		enableCSSTransitions: false,
 		_cssTransitionFor: {
 			"left": "left", "top": "top", "right": "right", "bottom": "bottom",
 			"width": "width", "height": "height"
@@ -188,13 +192,6 @@ Animate = SC.Object.create(
 			
 			for (var i in newLayout)
 			{
-				// stop any old animations
-				if (this._animators[i])
-				{
-					this._animators[i].invalidate();
-					this._animators[i].destroy();
-					delete this._animators[i];
-				}
 				
 				// if it needs to be set right away since it is not animatable, _animatableStartHash
 				// will have done that. But if we aren't supposed to animate it, we need to know, now.
@@ -214,20 +211,38 @@ Animate = SC.Object.create(
 				
 				// well well well... looks like we need to animate. Prepare an animation structure.
 				// (WHY ARE WE ALWAYS PREPARING?)
-				var animator = {
-					start: Date.now(),
-					end: Date.now() + this.transitionLayout[i].duration,
-					startValue: normalizedStart[i],
-					endValue: newLayout[i],
-					timer: undefined,
-					property: i,
+				var applier = this._animateTickPixel, property = i, startValue = normalizedStart[i], endValue = newLayout[i];
+				
+				// special property stuff
+				if (property == "centerX" || property == "centerY")
+				{
+					// uh... need a special applier; it needs to update currentlayout differently than actual
+					// layout, since one gets "layout," and the other gets styles.
+				}
+				
+				// cache animator objects, not for memory, but so we can modify them.
+				if (!this._animators[i])
+					this._animators[i] = {};
+				SC.mixin(this._animators[i], {
+					// start: Date.now(), // you could put this here. But it is better to wait. The animation is smoother
+					// if its beginning time is whenever the first frame fires.
+					// otherwise, if there is a big delay before the first frame (perhaps we are animating other elements)
+					// the items will "jump" unattractively
+					
+					start: null, // instead, we set to null
+					duration: this.transitionLayout[i].duration,
+					startValue: startValue,
+					endValue: endValue,
 					layer: layer,
-					action: this._animateTickPixel,
-					layout: this._animatableCurrentLayout
-				};
+					property: property,
+					action: applier,
+					holder: this // firefox doesn't pass _animatableCurrentLayout as a pointer for some reason.
+					// so, pass this.
+				});
 				
 				// add timer
-				Animate.addTimer(animator);
+				if (!this._animators[i].going)
+					Animate.addTimer(this._animators[i]);
 			}
 			
 			// and update layout to the normalized start.
@@ -247,14 +262,22 @@ Animate = SC.Object.create(
 		*/
 		_animateTickPixel: function()
 		{
+			var t = Date.now();
+			
 			// prepare timing stuff
+			// first, setup this.start if needed (it is lazy, after all)
+			if (SC.none(this.start))
+			{
+				this.start = t;
+				this.end = this.start + this.duration;
+			}
+			
 			var s = this.start, e = this.end;
 			var sv = this.startValue, ev = this.endValue;
 			var d = e - s;
 			var dv = ev - sv;
 
 			// get current
-			var t = Date.now();
 			var c = t - s;
 			var percent = Math.min(c / d, 1);
 			
@@ -263,21 +286,15 @@ Animate = SC.Object.create(
 			// calculate new position			
 			// WAY 1: Modify style directly
 			var value = sv + (dv * percent);
-			this.layout[this.property] = value; //this.layout => the real this._animatableCurrentLayout
-			this.layer.style[this.property] = value + "px";
+			this.holder._animatableCurrentLayout[this.property] = Math.floor(value); //this.layout => the real this._animatableCurrentLayout
+			
+			// note: the following tested faster than directly setting this.layer.style.cssText
+			this.layer.style[this.property] = Math.floor(value) + "px";
 			
 			if (t < this.end)
 				Animate.addTimer(this);
-		},
-		
-		_animateTickCenterX: function(a)
-		{
-			
-		},
-		
-		_animateTickCenterY: function(a)
-		{
-			
+			else
+				this.going = false;
 		},
 		
 		/**
@@ -312,7 +329,7 @@ Animate = SC.Object.create(
 	Test for CSS transition capability...
 */
 (function(){
-	var test = function(){// return false;
+	var test = function(){ //return false;
 		// a test element
 		var el = document.createElement("div");
 
@@ -344,5 +361,5 @@ Animate = SC.Object.create(
 	
 	// and apply what we found
 	if (testResult)
-		Animate.Animatable._animatableCSSTransitions = true;
+		Animate.Animatable.enableCSSTransitions = true;
 })();

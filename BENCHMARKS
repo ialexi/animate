@@ -1,0 +1,49 @@
+BEFORE 10/19/2009:
+ 15 fps: 100 text.
+
+
+Mac: Macbook Pro Core 2 Duo 2.33GHz 2GB RAM with LOTS OF PROGRAMS OPEN
+Windows: Pentium 4 3.20GHz w/2GB RAM with ONLY BROWSER
+
+10/19/2009:
+Safari/Alex's Mac
+ 20 fps: 1000 labels
+
+10/21/2009:
+IE/Alex's Slow Windows
+ 10 fps: 500 labels
+ 3  fps: 1000 labels   // I couldn't even round. Just... REALLY REALLY SLOW!!!
+ 3.5  fps: 900 labels    // and I hate IE's script time error thingie. 3.5 because it was 3 half the time, 4 the other half.
+ 
+
+Firefox/Alex's Slow Windows
+ 15 fps: 500 labels
+ 5  fps: 1000 labels
+ 6  fps: 900 labels
+
+Chrome/Alex's Slow Windows (no CSS transitions)
+ 25 fps: 500 labels
+ 13 fps: 1000 labels    WOW WOW WOW!!!
+ 15 fps: 900 labels
+
+Safari/Alex's Slow Windows (no CSS transitions)
+ 20 fps: 500 labels
+ 9  fps: 1000 labels    Huh.
+ 10 fps: 900 labels.
+
+Safari/Alex's Mac
+ 40??: 500 labels  -- varied a lot... much more consistent with higher number of labels.
+ 25 fps: 1000 labels -- very consistent, 24-26
+ 27 fps: 900 labels -- varied a bit too much; mostly 27-30.
+
+Firefox/Alex's Mac:
+ 25 fps: 500 labels
+ 8 fps: 1000
+
+Chromium/Alex's Mac:
+ 40??: 500 labels
+ 20:   1000 labels
+
+In short, (20/15)*10 times faster.
+Which computes to: 13.33 times as fast.
+
