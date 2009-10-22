@@ -202,7 +202,7 @@ Animate = SC.Object.create(
 				}
 				
 				// If there is an available CSS transition, use that.
-				if (this._animatableCSSTransitions && this._cssTransitionFor[i])
+				if (this.enableCSSTransitions && this._cssTransitionFor[i])
 				{
 					cssTransitions.push(this._cssTransitionFor[i] + " " + (this.transitionLayout[i].duration / 1000) + "s linear");
 					normalizedStart[i] = newLayout[i];
