@@ -45,19 +45,36 @@ Animate = SC.Object.create(
 	},
 	going: false,
 	interval: 10,
+	currentTime: (new Date()).getTime(),
+	
+	enableCSSTransitions: false, // automatically calculated. You can override, but only from OUTSIDE.
+	
+	lastFPS: 1, // the average FPS for the last sequence of animations.
+	_ticks: 0,
+	_timer_start_time: null,
+	
 	addTimer: function(animator)
 	{
 		animator.next = Animate.baseTimer.next;
 		Animate.baseTimer.next = animator;
-		if (!Animate.going)
-			Animate.timeout();
 		animator.going = true;
+		if (!Animate.going)
+			Animate.start();
+	},
+	
+	start: function()
+	{
+		Animate._ticks = 0;
+		Animate._timer_start_time = (new Date()).getTime();
+		Animate.going = true;
+		
+		// set a timeout so tick only runs AFTER any pending animation timers are set.
+		setTimeout(Animate.timeout, 0);
 	},
 	
 	timeout: function()
-	{
-		var start = Date.now();
-		Animate.going = true;
+	{	
+		var start = Animate.currentTime = (new Date()).getTime();
 		var next = Animate.baseTimer.next;
 		Animate.baseTimer.next = null;
 		var i = 0;
@@ -65,16 +82,33 @@ Animate = SC.Object.create(
 		{
 			var t = next.next;
 			next.next = null;
-			next.action.call(next);
+			next.action.call(next, start);
 			next = t;
 			i++;
 		}
+	
+		// built-in FPS counter, so that FPS is only counted DURING animation.
+		// is there a way to make the minifier get rid of this? Because that would be lovely.
+		// still, only called once per frame, so should _very_ minimally impact performance and memory.
+		if (Animate._ticks < 1000000) // okay, put _some_ limit on it
+			Animate._ticks++;
 		
-		var elapsed = Date.now() - start;
+		// now see about doing next bit...	
+		var end = (new Date()).getTime();
+		var elapsed = end - start;
 		if (Animate.baseTimer.next)
 			setTimeout(function(){ Animate.timeout(); }, Math.max(0, Animate.interval - elapsed));
 		else
+		{
+			// we're done... so calculate FPS
 			Animate.going = false;
+			
+			// get diff
+			var time_diff = end - Animate._timer_start_time;
+			var loop = SC.RunLoop.begin();
+			Animate.set("lastFPS", Animate._ticks / (time_diff / 1000));
+			loop.end();
+		}
 	},
 	
 	
@@ -82,7 +116,6 @@ Animate = SC.Object.create(
 		transitionLayout: {},
 		concatenatedProperties: ["transitionLayout"],
 		
-		enableCSSTransitions: false,
 		_cssTransitionFor: {
 			"left": "left", "top": "top", "right": "right", "bottom": "bottom",
 			"width": "width", "height": "height"
@@ -202,7 +235,7 @@ Animate = SC.Object.create(
 				}
 				
 				// If there is an available CSS transition, use that.
-				if (this.enableCSSTransitions && this._cssTransitionFor[i])
+				if (Animate.enableCSSTransitions && this._cssTransitionFor[i])
 				{
 					cssTransitions.push(this._cssTransitionFor[i] + " " + (this.transitionLayout[i].duration / 1000) + "s linear");
 					normalizedStart[i] = newLayout[i];
@@ -223,26 +256,27 @@ Animate = SC.Object.create(
 				// cache animator objects, not for memory, but so we can modify them.
 				if (!this._animators[i])
 					this._animators[i] = {};
-				SC.mixin(this._animators[i], {
-					// start: Date.now(), // you could put this here. But it is better to wait. The animation is smoother
-					// if its beginning time is whenever the first frame fires.
-					// otherwise, if there is a big delay before the first frame (perhaps we are animating other elements)
-					// the items will "jump" unattractively
-					
-					start: null, // instead, we set to null
-					duration: this.transitionLayout[i].duration,
-					startValue: startValue,
-					endValue: endValue,
-					layer: layer,
-					property: property,
-					action: applier,
-					holder: this // firefox doesn't pass _animatableCurrentLayout as a pointer for some reason.
-					// so, pass this.
-				});
+				
+				// used to mixin a struct. But I think that would create a new struct.
+				// also, why waste cycles on a SC.mixin()? So I go the direct approach.
+				var a = this._animators[i];
+				
+				// set settings...
+				// start: Date.now(), // you could put this here. But it is better to wait. The animation is smoother
+				// if its beginning time is whenever the first frame fires.
+				// otherwise, if there is a big delay before the first frame (perhaps we are animating other elements)
+				// the items will "jump" unattractively
+				a.start = null;
+				a.duration = this.transitionLayout[i].duration;
+				a.startValue = startValue, a.endValue = endValue;
+				a.layer = layer;
+				a.property = property;
+				a.action = applier;
+				a.holder = this;
 				
 				// add timer
-				if (!this._animators[i].going)
-					Animate.addTimer(this._animators[i]);
+				if (!a.going)
+					Animate.addTimer(a);
 			}
 			
 			// and update layout to the normalized start.
@@ -260,10 +294,9 @@ Animate = SC.Object.create(
 			Manages a single step in a single animation.
 			NOTE: this=>an animator hash
 		*/
-		_animateTickPixel: function()
+		_animateTickPixel: function(t)
 		{
 			var t = Date.now();
-			
 			// prepare timing stuff
 			// first, setup this.start if needed (it is lazy, after all)
 			if (SC.none(this.start))
@@ -284,14 +317,13 @@ Animate = SC.Object.create(
 			// todo: call interpolation function, if any, here
 			
 			// calculate new position			
-			// WAY 1: Modify style directly
-			var value = sv + (dv * percent);
-			this.holder._animatableCurrentLayout[this.property] = Math.floor(value); //this.layout => the real this._animatableCurrentLayout
+			var value = Math.floor(sv + (dv * percent));
+			this.holder._animatableCurrentLayout[this.property] = value; //this.layout => the real this._animatableCurrentLayout
 			
 			// note: the following tested faster than directly setting this.layer.style.cssText
-			this.layer.style[this.property] = Math.floor(value) + "px";
+			this.layer.style[this.property] = value + "px";
 			
-			if (t < this.end)
+			if (t < e)
 				Animate.addTimer(this);
 			else
 				this.going = false;
@@ -361,5 +393,5 @@ Animate = SC.Object.create(
 	
 	// and apply what we found
 	if (testResult)
-		Animate.Animatable.enableCSSTransitions = true;
+		Animate.enableCSSTransitions = true;
 })();
