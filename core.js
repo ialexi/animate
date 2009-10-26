@@ -49,7 +49,7 @@ Animate = SC.Object.create(
 	
 	enableCSSTransitions: false, // automatically calculated. You can override, but only from OUTSIDE.
 	
-	lastFPS: 1, // the average FPS for the last sequence of animations.
+	lastFPS: 0, // the average FPS for the last sequence of animations.
 	_ticks: 0,
 	_timer_start_time: null,
 	
@@ -116,10 +116,21 @@ Animate = SC.Object.create(
 		transitionLayout: {},
 		concatenatedProperties: ["transitionLayout"],
 		
+		// collections of CSS transitions we have available
 		_cssTransitionFor: {
-			"left": "left", "top": "top", "right": "right", "bottom": "bottom",
+			"left": "left", "top": "top", 
+			"right": "right", "bottom": "bottom",
 			"width": "width", "height": "height"
 		},
+		
+		// we cache this dictionary so we don't generate a new one each time we make
+		// a new animation. It is used so we can start the animations in order—
+		// for instance, centerX and centerY need to be animated _after_ width and height.
+		_animationsToStart: {},
+		
+		// and, said animation order
+		_animationOrder: ["top", "left", "bottom", "right", "width", "height", "centerX", "centerY"],
+		
 		
 		initMixin: function()
 		{
@@ -210,21 +221,43 @@ Animate = SC.Object.create(
 			if (!this._animatableCurrentLayout || firstTime)
 			{
 				sc_super();
-				this._animatableCurrentLayout = newLayout;
+				
+				// clone manually so we don't catch our death of guid
+				this._animatableCurrentLayout = {};
+				for (var i in newLayout)
+					if (i[0] != "_")
+						this._animatableCurrentLayout[i] = newLayout[i];
+				
 				return;
 			}
 			
-			// don't animate if there is nothing to animate.
-			if (SC.isEqual(newLayout, this._animatableCurrentLayout))
+			var layer = this.get("layer");
+			if (!layer)
+				return;
+			
+			// don't animate if there is nothing to animate. Compare manually; isEqual
+			// uses the guid if possible, which is not necessarily accurate, because
+			// clone clones that (and adjust uses clone)
+			var equal = true;
+			for (var i in newLayout)
+			{
+				if (i[0] == "_") continue;
+				if (newLayout[i] != this._animatableCurrentLayout[i])
+				{
+					equal = false;
+					break;
+				}
+			}
+			if (equal)
 				return;
 			
 			// get normalized start
 			var normalizedStart = this._animatableStartLayoutHash(this._animatableCurrentLayout);
 			var cssTransitions = [];
-			var layer = this.get("layer");
-			
 			for (var i in newLayout)
 			{
+				if (i[0] == "_") // guid (or something else we can't deal with anyway)
+					return;
 				
 				// if it needs to be set right away since it is not animatable, _animatableStartHash
 				// will have done that. But if we aren't supposed to animate it, we need to know, now.
@@ -251,6 +284,7 @@ Animate = SC.Object.create(
 				{
 					// uh... need a special applier; it needs to update currentlayout differently than actual
 					// layout, since one gets "layout," and the other gets styles.
+					applier = this._animateTickCenter;
 				}
 				
 				// cache animator objects, not for memory, but so we can modify them.
@@ -272,11 +306,24 @@ Animate = SC.Object.create(
 				a.layer = layer;
 				a.property = property;
 				a.action = applier;
+				a.style = layer.style;
 				a.holder = this;
 				
 				// add timer
 				if (!a.going)
-					Animate.addTimer(a);
+					this._animationsToStart[i] = a;
+			}
+			
+			// start animations, in order
+			var ao = this._animationOrder, l = this._animationOrder.length;
+			for (var i = 0; i < l; i++)
+			{
+				var a = ao[i];
+				if (this._animationsToStart[a])
+				{
+					Animate.addTimer(this._animationsToStart[a]);
+					delete this._animationsToStart[a];
+				}
 			}
 			
 			// and update layout to the normalized start.
@@ -296,7 +343,6 @@ Animate = SC.Object.create(
 		*/
 		_animateTickPixel: function(t)
 		{
-			var t = Date.now();
 			// prepare timing stuff
 			// first, setup this.start if needed (it is lazy, after all)
 			if (SC.none(this.start))
@@ -305,23 +351,68 @@ Animate = SC.Object.create(
 				this.end = this.start + this.duration;
 			}
 			
+			// the differences
 			var s = this.start, e = this.end;
 			var sv = this.startValue, ev = this.endValue;
 			var d = e - s;
 			var dv = ev - sv;
 
-			// get current
+			// get current percent of animation completed
 			var c = t - s;
 			var percent = Math.min(c / d, 1);
 			
-			// todo: call interpolation function, if any, here
+			// call interpolator (if any)
+			if (t.interpolator) percent = t.interpolator(percent);
 			
 			// calculate new position			
 			var value = Math.floor(sv + (dv * percent));
 			this.holder._animatableCurrentLayout[this.property] = value; //this.layout => the real this._animatableCurrentLayout
 			
 			// note: the following tested faster than directly setting this.layer.style.cssText
-			this.layer.style[this.property] = value + "px";
+			this.style[this.property] = value + "px";
+			
+			if (t < e)
+				Animate.addTimer(this);
+			else
+				this.going = false;
+		},
+		
+		// NOTE: I tested this with two separate functions (one for each X and Y)
+		// 		 no definite performance difference on Safari, at least.
+		_animateTickCenter: function(t)
+		{
+			// prepare timing stuff
+			// first, setup this.start if needed (it is lazy, after all)
+			if (SC.none(this.start))
+			{
+				this.start = t;
+				this.end = this.start + this.duration;
+			}
+			
+			// the differences
+			var s = this.start, e = this.end;
+			var sv = this.startValue, ev = this.endValue;
+			var d = e - s;
+			var dv = ev - sv;
+
+			// get current percent of animation completed
+			var c = t - s;
+			var percent = Math.min(c / d, 1);
+			
+			// call interpolator (if any)
+			if (t.interpolator) percent = t.interpolator(percent);
+			
+			// calculate new position			
+			var value = sv + (dv * percent);
+			this.holder._animatableCurrentLayout[this.property] = value; //this.layout => the real this._animatableCurrentLayout
+			
+			// calculate style, which needs to subtract half of width/height
+			var widthOrHeight, style;
+			if (this.property == "centerX")
+				widthOrHeight = "width", style = "margin-left";
+			else widthOrHeight = "height", style = "margin-top";
+			
+			this.style[style] = Math.round(value - (this.holder._animatableCurrentLayout[widthOrHeight] / 2)) + "px";
 			
 			if (t < e)
 				Animate.addTimer(this);
@@ -348,6 +439,7 @@ Animate = SC.Object.create(
 				var context = this.renderContext(layer);
 				this.renderLayout(context);
 				context.addStyle("-webkit-transition", this._animatableSetCSS);
+				context.addStyle("-moz-transition", this._animatableSetCSS);
 				context.update();
 			}
 			
