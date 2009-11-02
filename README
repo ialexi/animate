@@ -1,3 +1,5 @@
+NOTE: API HAS CHANGED.
+
 A simple mixin called Animatable is provided. What does it do?
 It makes CSS transitions for you, and if they aren't available,
 implements them in JavaScript.
@@ -17,9 +19,9 @@ Current flaws:
 Example Usage:
 
 	aView: SC.LabelView.design(Animate.Animatable, {
-		transitionLayout: {
-			left: {duration: 250},
-			top: {duration: 250}
+		transitions: {
+			left: .25,
+			top: {duration: .25}
 		}
 	})
 
