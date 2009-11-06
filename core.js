@@ -20,7 +20,13 @@
 		- Likely somewhat buggy. Haven't seen any bugs, though... Please tell me.
 		- Not very configurable. Should at LEAST allow (preset) interpolation
 		  functions.
-		- No support for changing non-layout properties such as color.
+	
+	Animatable things:
+		- layout. You can animate any layout property, even centerX and centerY
+		- opacity.
+		- display, in a way. All animating display does is delay setting display:none
+		  until <em>after</em> the transition duration has passed. This allows you
+		  to set display:none after fading out.
 		
 	@example Example Usage:
 	{{{
@@ -133,7 +139,7 @@ Animate = SC.Object.create(
 		},
 		
 		// properties that adjust should relay to style
-		_styleProperties: [ "opacity" ],
+		_styleProperties: [ "opacity", "display" ],
 		_layoutStyles: ["left", "right", "top", "bottom", "width", "height", "centerX", "centerY"],
 		
 		// we cache this dictionary so we don't generate a new one each time we make
@@ -142,7 +148,7 @@ Animate = SC.Object.create(
 		_animationsToStart: {},
 		
 		// and, said animation order
-		_animationOrder: ["top", "left", "bottom", "right", "width", "height", "centerX", "centerY", "opacity"],
+		_animationOrder: ["top", "left", "bottom", "right", "width", "height", "centerX", "centerY", "opacity", "display"],
 		
 		
 		initMixin: function()
@@ -325,7 +331,10 @@ Animate = SC.Object.create(
 				
 				// if it needs to be set right away since it is not animatable, _getStartStyleHash
 				// will have done that. But if we aren't supposed to animate it, we need to know, now.
-				if (!this.transitions[i] || newStyle[i] == startingPoint[i])
+				var shouldSetImmediately = !this.transitions[i] || newStyle[i] == startingPoint[i];
+				if (i == "display" && newStyle[i] != "none") shouldSetImmediately = true;
+				
+				if (shouldSetImmediately)
 				{
 					startingPoint[i] = newStyle[i];
 					continue;
@@ -358,6 +367,10 @@ Animate = SC.Object.create(
 				else if (property == "opacity")
 				{
 					applier = this._animateTickNumber;
+				}
+				else if (property == "display")
+				{
+					applier = this._animateTickDisplay;
 				}
 				
 				// cache animator objects, not for memory, but so we can modify them.
@@ -417,10 +430,16 @@ Animate = SC.Object.create(
 			// todo: filter garbage.
 		},
 		
+		_style_display_helper: function(style, key, props)
+		{
+			style["display"] = props["display"];
+		},
+		
 		_animatableApplyStyles: function(layer, styles)
 		{
 			var styleHelpers = {
-				opacity: this._style_opacity_helper
+				opacity: this._style_opacity_helper,
+				display: this._style_display_helper
 				// more to be added here...
 			};
 			
@@ -527,17 +546,41 @@ Animate = SC.Object.create(
 			var percent = Math.min(c / d, 1);
 			
 			// call interpolator (if any)
-			if (t.interpolator) percent = t.interpolator(percent);
+			if (this.interpolator) percent = this.interpolator(percent);
 			
 			// calculate new position			
 			var value = Math.floor(sv + (dv * percent));
-			this.holder._animatableCurrentStyle[this.property] = value; //this.layout => the real this._animatableCurrentLayout
+			this.holder._animatableCurrentStyle[this.property] = value;
 			
 			// note: the following tested faster than directly setting this.layer.style.cssText
 			this.style[this.property] = value + "px";
 			
 			if (t < e) Animate.addTimer(this);
 			else this.going = false;
+		},
+		
+		_animateTickDisplay: function(t)
+		{
+			// prepare timing stuff
+			// first, setup this.start if needed (it is lazy, after all)
+			if (SC.none(this.start))
+			{
+				this.start = t;
+				this.end = this.start + this.duration;
+			}
+			
+			// check if we should keep going (we only set display none, and only at end)
+			var e = this.end;
+			if (t < e) 
+			{
+				Animate.addTimer(this);
+				return;
+			}
+			
+			this.holder._animatableCurrentStyle[this.property] = this.endValue;
+			this.style[this.property] = this.endValue;
+			
+			this.going = false;
 		},
 		
 		/**
@@ -565,11 +608,11 @@ Animate = SC.Object.create(
 			var percent = Math.min(c / d, 1);
 			
 			// call interpolator (if any)
-			if (t.interpolator) percent = t.interpolator(percent);
+			if (this.interpolator) percent = this.interpolator(percent);
 			
 			// calculate new position			
 			var value = Math.round((sv + (dv * percent)) * 100) / 100;
-			this.holder._animatableCurrentStyle[this.property] = value; //this.layout => the real this._animatableCurrentLayout
+			this.holder._animatableCurrentStyle[this.property] = value;
 			
 			// note: the following tested faster than directly setting this.layer.style.cssText
 			this.style[this.property] = value;
@@ -601,11 +644,11 @@ Animate = SC.Object.create(
 			var percent = Math.min(c / d, 1);
 			
 			// call interpolator (if any)
-			if (t.interpolator) percent = t.interpolator(percent);
+			if (this.interpolator) percent = this.interpolator(percent);
 			
 			// calculate new position			
 			var value = sv + (dv * percent);
-			this.holder._animatableCurrentStyle[this.property] = value; //this.layout => the real this._animatableCurrentLayout
+			this.holder._animatableCurrentStyle[this.property] = value;
 			
 			// calculate style, which needs to subtract half of width/height
 			var widthOrHeight, style;
