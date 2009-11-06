@@ -147,7 +147,13 @@ Animate = SC.Object.create(
 		
 		initMixin: function()
 		{
+			// substitute our didUpdateLayer method (but saving the old one)
+			this._animatable_original_did_update_layer = this.didUpdateLayer || function(){};
+			this.didUpdateLayer = this._animatable_did_update_layer;
+			
+			// for debugging
 			this._animateTickPixel.displayName = "animate-tick";
+			
 			// if transitions was concatenated...
 			var i;
 			if (SC.isArray(this.transitions))
@@ -171,7 +177,7 @@ Animate = SC.Object.create(
 			
 			// live animators
 			this._animators = {}; // keyAnimated => object describing it.
-			this._animatableSetCSS = {};
+			this._animatableSetCSS = "";
 		},
 		
 		/**
@@ -217,7 +223,7 @@ Animate = SC.Object.create(
 		*/
 		resetAnimation: function()
 		{
-			this._animatableCurrentStyle = null;
+			this._animatableCurrentStyle = this.style;
 			this.styleDidChange();
 		},
 		
@@ -241,30 +247,20 @@ Animate = SC.Object.create(
 			// loop through properties in target
 			for (var i in target)
 			{
-				switch(i)
+				if (f)
 				{
-					case "left":
-						l[i] = f.x; break;
-					case "top":
-						l[i] = f.y; break;
-					case "right":
-						l[i] = p.width - f.x - f.width; break;
-					case "bottom":
-						l[i] = p.height - f.y - f.height; break;
-					case "height":
-						l[i] = f.height; break;
-					case "width":
-						l[i] = f.width; break;
-					case "centerX":
-						l[i] = f.x + (f.width / 2) - (p.width / 2); break;
-					case "centerY":
-						l[i] = f.y + (f.height / 2) - (p.height / 2); break;
-					
-					// don't need to interpet any others, so just do directly
-					default:
-						if (!SC.none(start[i])) l[i] = start[i];
-						else l[i] = target[i];
+					if (i == "left") { l[i] = f.x; continue; }
+					else if (i == " top") { l[i] = f.y; continue; }
+					else if (i == "right") { l[i] = p.width - f.x - f.width; continue; }
+					else if (i == "bottom") { l[i] = p.height - f.y - f.height; continue; }
+					else if (i == "width") { l[i] = f.width; continue; }
+					else if (i == "height") { l[i] = f.height; continue; }
+					else if (i == "centerX") { l[i] = f.x + (f.width / 2) - (p.width / 2); continue; }
+					else if (i == "centerY") { l[i] = f.y + (f.height / 2) - (p.height / 2); continue; }
 				}
+				
+				if (!SC.none(start[i])) l[i] = start[i];
+				else l[i] = target[i];
 			}
 			
 			return l;
@@ -430,12 +426,14 @@ Animate = SC.Object.create(
 			
 			// we extract the layout portion so SproutCore can do its own thing...
 			var newLayout = {};
+			var updateLayout = NO;
 			var style = layer.style;
 			for (var i in styles)
 			{
 				if (this._layoutStyles.indexOf(i) >= 0)
 				{
 					newLayout[i] = styles[i];
+					updateLayout = YES;
 					continue;
 				}
 				
@@ -443,6 +441,7 @@ Animate = SC.Object.create(
 			}
 			
 			// don't want to set because we don't want updateLayout... again.
+			if (!updateLayout) return;
 			var prev = this.layout;
 			this.layout = newLayout;
 			
@@ -459,6 +458,16 @@ Animate = SC.Object.create(
 			// go back to previous
 			this.layout = prev;
 			this._animatableCurrentStyle = styles;
+		},
+		
+		/**
+			Overridden so that the proper styles are always set after a call to render.
+		*/
+		_animatable_did_update_layer: function()
+		{
+			this._animatable_original_did_update_layer();
+			var styles = this._animatableCurrentStyle || {}, layer = this.get("layer");
+			this._animatableApplyStyles(layer, styles);
 		},
 		
 		/**
