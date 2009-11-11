@@ -337,6 +337,14 @@ Animate = SC.Object.create(
 				if (shouldSetImmediately)
 				{
 					startingPoint[i] = newStyle[i];
+					
+					// you can't easily stop the animator. So just set its endpoint and make it end soon.
+					var animator = this._animators[i];
+					if (animator)
+					{
+						animator.endValue = newStyle[i];
+						animator.end = 0;
+					}
 					continue;
 				}
 				
