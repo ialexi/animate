@@ -434,8 +434,8 @@ Animate = SC.Object.create(
 		_style_opacity_helper: function(style, key, props)
 		{
 			style["opacity"] = props["opacity"];
-			style["-moz-opacity"] = props["-moz-opacity"]; // older Firefox?
-			// todo: filter garbage.
+			style["mozOpacity"] = props["opacity"]; // older Firefox?
+			style["filter"] = "alpha(opacity=" + props["opacity"] * 100 + ")";
 		},
 		
 		_style_display_helper: function(style, key, props)
@@ -624,6 +624,11 @@ Animate = SC.Object.create(
 			
 			// note: the following tested faster than directly setting this.layer.style.cssText
 			this.style[this.property] = value;
+			if (this.property == "opacity")
+			{
+				this.style["zoom"] = 1;
+				this.style["filter"] = "alpha(opacity=" + Math.round(value * 20) * 5 + ")";
+			}
 			
 			if (t < e) Animate.addTimer(this);
 			else this.going = false;
