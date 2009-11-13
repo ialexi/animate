@@ -191,6 +191,9 @@ Animate = SC.Object.create(
 			
 			These added properties are currently:
 			- opacity.
+			- display.
+			
+			This is a complete rewrite of adjust. Its performance can probably be boosted. Do it!
 		*/
 		adjust: function(dictionary, value)
 		{
@@ -203,22 +206,40 @@ Animate = SC.Object.create(
 				dictionary = SC.clone(dictionary);
 			}
 			
-			var style = SC.clone(this.get("style")), didChange = NO;
+			var style = SC.clone(this.get("style")), didChangeStyle = NO, layout = SC.clone(this.get("layout")), didChangeLayout = NO;
 			var sprops = this._styleProperties;
 			for (var i in dictionary)
 			{
-				if (sprops.indexOf(i) >= 0)
+				var didChange = NO;
+				
+				var current = (sprops.indexOf(i) >= 0) ? style : layout;
+				var cval = current[i], nval = dictionary[i];
+				
+				if (nval !== undefined && cval !== nval)
 				{
-					style[i] = dictionary[i];
-					delete dictionary[i];
-					didChange = YES;
+					if (nval === null)
+					{
+						if (cval !== undefined) didChange = YES;
+						delete current[i];
+					}
+					else
+					{
+						current[i] = nval;
+						didChange = YES;
+					}
+				}
+				
+				if (didChange) {
+					if (current === style) didChangeStyle = YES; else didChangeLayout = YES;
 				}
 			}
 			
-			if (didChange) this.set("style", style);
+			if (didChangeStyle) this.set("style", style);
+			if (didChangeLayout) this.set("layout", layout);
 			
 			// call base with whatever is leftover
-			return arguments.callee.base.call(this, dictionary, value);
+			return this;
+			//return this;
 		},
 		
 		/**
@@ -289,8 +310,6 @@ Animate = SC.Object.create(
 			var i;
 			if (!this._animatableCurrentStyle)
 			{
-				sc_super();
-				
 				// clone it to be a nice starting point next time.
 				this._animatableCurrentStyle = {};
 				for (i in newStyle)
@@ -493,7 +512,7 @@ Animate = SC.Object.create(
 		_animatable_did_update_layer: function()
 		{
 			this._animatable_original_did_update_layer();
-			var styles = this._animatableCurrentStyle || {}, layer = this.get("layer");
+			var styles = this._animatableCurrentStyle || (this.get("style") || {}), layer = this.get("layer");
 			this._animatableApplyStyles(layer, styles);
 		},
 		
