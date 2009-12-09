@@ -51,7 +51,7 @@ Animate = SC.Object.create(
 	},
 	going: false,
 	interval: 10,
-	currentTime: (new Date()).getTime(),
+	currentTime: new Date().getTime(),
 	
 	enableCSSTransitions: false, // automatically calculated. You can override, but only from OUTSIDE.
 	
@@ -70,7 +70,7 @@ Animate = SC.Object.create(
 	start: function()
 	{
 		Animate._ticks = 0;
-		Animate._timer_start_time = (new Date()).getTime();
+		Animate._timer_start_time = new Date().getTime();
 		Animate.going = true;
 		
 		// set a timeout so tick only runs AFTER any pending animation timers are set.
@@ -79,7 +79,7 @@ Animate = SC.Object.create(
 	
 	timeout: function()
 	{	
-		Animate.currentTime = (new Date()).getTime();
+		Animate.currentTime = new Date().getTime();
 		var start = Animate.currentTime;
 		
 		var next = Animate.baseTimer.next;
@@ -100,7 +100,7 @@ Animate = SC.Object.create(
 		if (Animate._ticks < 1000000) Animate._ticks++; // okay, put _some_ limit on it
 		
 		// now see about doing next bit...	
-		var end = (new Date()).getTime();
+		var end = new Date().getTime();
 		var elapsed = end - start;
 		if (Animate.baseTimer.next)
 		{
@@ -184,6 +184,7 @@ Animate = SC.Object.create(
 			// live animators
 			this._animators = {}; // keyAnimated => object describing it.
 			this._animatableSetCSS = "";
+			this._last_transition_css = ""; // to keep from re-setting unnecessarily
 		},
 		
 		/**
@@ -239,7 +240,6 @@ Animate = SC.Object.create(
 			
 			// call base with whatever is leftover
 			return this;
-			//return this;
 		},
 		
 		/**
@@ -290,9 +290,16 @@ Animate = SC.Object.create(
 				else l[i] = target[i];
 			}
 			
+			// clean up duplicates (don't move what hasn't moved)
+			for (i in l)
+			{
+				if (l[i] == start[i]) delete l[i];
+			}
+			
 			return l;
 		},
 		
+		_TMP_CSS_TRANSITIONS: [],
 		/**
 			Triggered when style changes.
 		*/
@@ -342,7 +349,7 @@ Animate = SC.Object.create(
 			var startingPoint = this._getStartStyleHash(this._animatableCurrentStyle, newStyle);
 			
 			// also prepare an array of CSS transitions to set up.
-			var cssTransitions = [];
+			var cssTransitions = this._TMP_CSS_TRANSITIONS;
 			
 			for (i in newStyle)
 			{
@@ -355,6 +362,7 @@ Animate = SC.Object.create(
 				
 				if (shouldSetImmediately)
 				{
+					// set
 					startingPoint[i] = newStyle[i];
 					
 					// you can't easily stop the animator. So just set its endpoint and make it end soon.
@@ -440,6 +448,7 @@ Animate = SC.Object.create(
 			
 			// and update layout to the normalized start.
 			var css = cssTransitions.join(",");
+			cssTransitions.length = "";
 			this._animatableSetCSS = css;
 			
 			// apply starting styles directly to layer
@@ -470,10 +479,17 @@ Animate = SC.Object.create(
 				// more to be added here...
 			};
 			
+			// init props
+			var newLayout = {}, updateLayout = NO, style = layer.style;
+			
+			// set CSS transitions very first thing
+			if (this._animatableSetCSS != this._last_transition_css) {
+				style["-webkit-transition"] = this._animatableSetCSS;
+				style["-moz-transition"] = this._animatableSetCSS;
+				this._last_transition_css = this._animatableSetCSS;
+			}
+			
 			// we extract the layout portion so SproutCore can do its own thing...
-			var newLayout = {};
-			var updateLayout = NO;
-			var style = layer.style;
 			for (var i in styles)
 			{
 				if (this._layoutStyles.indexOf(i) >= 0)
@@ -487,22 +503,25 @@ Animate = SC.Object.create(
 			}
 			
 			// don't want to set because we don't want updateLayout... again.
-			if (!updateLayout) return;
-			var prev = this.layout;
-			this.layout = newLayout;
+			if (updateLayout) {
+				var prev = this.layout;
+				this.layout = newLayout;
 			
-			// set layout
-			this.notifyPropertyChange("layoutStyle");
+				// set layout
+				this.notifyPropertyChange("layoutStyle");
  
-			// notify of update
-			var context = this.renderContext(layer);
-			this.renderLayout(context);
-			context.addStyle("-webkit-transition", this._animatableSetCSS);
-			context.addStyle("-moz-transition", this._animatableSetCSS);
-			context.update();
+				// apply the styles (but we have to mix it in, because we still have transitions, etc. that we set)
+				var ls = this.get("layoutStyle");
+				for (var key in ls) {
+					if (SC.none(ls[key])) delete style[key];
+					else style[key] = ls[key];
+				}
+				SC.mixin(style, this.get("layoutStyle"));
+				
+				// go back to previous
+				this.layout = prev;
+			}
 			
-			// go back to previous
-			this.layout = prev;
 			this._animatableCurrentStyle = styles;
 		},
 		
