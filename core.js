@@ -2,6 +2,8 @@
 // Project:   Animate
 // Copyright: ©2009 TPSi
 // Copyright: ©2009 Alex Iskander
+// Portions © Apple Inc under BSD License:
+//	See: http://trac.webkit.org/browser/trunk/WebCore/platform/graphics/UnitBezier.h
 // ==========================================================================
 /*globals Animate */
 
@@ -55,6 +57,8 @@ Animate = SC.Object.create(
 	
 	TRANSITION_EASE_IN_OUT: [0.42, 0, 0.58, 1.0],
 	
+	defaultTimingFunction: null, // you can change to TRANSITION_EASE, etc., but that may impact performance.
+	
 	// I'm about to hack a very poor memory-wise, but hopefully fast CPU-wise, thingy.
 	baseTimer: {
 		next: null
@@ -71,9 +75,10 @@ Animate = SC.Object.create(
 	
 	addTimer: function(animator)
 	{
+		if (animator.isQueued) return;
 		animator.next = Animate.baseTimer.next;
 		Animate.baseTimer.next = animator;
-		animator.going = true;
+		animator.isQueued = true;
 		if (!Animate.going) Animate.start();
 	},
 	
@@ -98,6 +103,7 @@ Animate = SC.Object.create(
 		while (next)
 		{
 			var t = next.next;
+			next.isQueued = false;
 			next.next = null;
 			next.action.call(next, start);
 			next = t;
@@ -300,12 +306,6 @@ Animate = SC.Object.create(
 				else l[i] = target[i];
 			}
 			
-			// clean up duplicates (don't move what hasn't moved)
-			for (i in l)
-			{
-				if (l[i] == start[i]) delete l[i];
-			}
-			
 			return l;
 		},
 		
@@ -358,12 +358,28 @@ Animate = SC.Object.create(
 			// get a normalized starting point based off of our style
 			var startingPoint = this._getStartStyleHash(this._animatableCurrentStyle, newStyle);
 			
-			// also prepare an array of CSS transitions to set up.
+			// also prepare an array of CSS transitions to set up. Do this always so we get (and keep) all transitions.
 			var cssTransitions = this._TMP_CSS_TRANSITIONS;
-			
+			if (Animate.enableCSSTransitions) {
+				// loop
+				for (i in this.transitions) {
+					if (!this._cssTransitionFor[i]) continue;
+					
+					// get timing function
+					var timing_function = "linear";
+					if (this.transitions[i].timing || Animate.defaultTimingFunction) {
+						var timing = this.transitions[i].timing || Animate.defaultTimingFunction;
+						timing_function = "cubic-bezier(" + timing[0] + ", " + timing[1] + ", " + timing[2] + ", " + timing[3] + ")";
+					}
+					
+					// add transition
+					cssTransitions.push(this._cssTransitionFor[i] + " " + this.transitions[i].duration + "s " + timing_function);
+				}				
+			}
+		
 			for (i in newStyle)
 			{
-				if (i[0] == "_") return; // guid (or something else we can't deal with anyway)
+				if (i[0] == "_") continue; // guid (or something else we can't deal with anyway)
 				
 				// if it needs to be set right away since it is not animatable, _getStartStyleHash
 				// will have done that. But if we aren't supposed to animate it, we need to know, now.
@@ -388,18 +404,12 @@ Animate = SC.Object.create(
 				// If there is an available CSS transition, use that.
 				if (Animate.enableCSSTransitions && this._cssTransitionFor[i])
 				{
-					var timing_function = "linear";
-					if (this.transitions[i].timing) {
-						var timing = this.transitions[i].timing;
-						timing_function = "cubic-bezier(" + timing[0] + " " + timing[1] + " " + timing[2] + " " + timing[3] + ")";
-					}
-					cssTransitions.push(this._cssTransitionFor[i] + " " + this.transitions[i].duration + "s " + timing_function);
-					
+					// the transition is already set up.
 					// we can just set it as part of the starting point
 					startingPoint[i] = newStyle[i];
 					continue;
 				}
-				
+
 				// well well well... looks like we need to animate. Prepare an animation structure.
 				// (WHY ARE WE ALWAYS PREPARING?)
 				var applier = this._animateTickPixel, 
@@ -444,7 +454,7 @@ Animate = SC.Object.create(
 				a.action = applier;
 				a.style = layer.style;
 				a.holder = this;
-				a.timingFunction = this.transitions[i].timing;
+				a.timingFunction = this.transitions[i].timing || Animate.defaultTimingFunction;
 				
 				// add timer
 				if (!a.going) this._animationsToStart[i] = a;
@@ -482,63 +492,86 @@ Animate = SC.Object.create(
 			style["filter"] = "alpha(opacity=" + props["opacity"] * 100 + ")";
 		},
 		
-		_style_display_helper: function(style, key, props)
-		{
-			style["display"] = props["display"];
-		},
-		
+		/**
+			Adjusts display and queues a change for the other properties.
+		*/
 		_animatableApplyStyles: function(layer, styles)
-		{
-			var styleHelpers = {
-				opacity: this._style_opacity_helper,
-				display: this._style_display_helper
-				// more to be added here...
-			};
+		{	
+			if (!layer) return;
 			
-			// init props
-			var newLayout = {}, updateLayout = NO, style = layer.style;
+			// handle a specific style first: display. There is a special case because it disrupts transitions.
+			if (styles["display"]) {
+				layer.style["display"] = styles["display"];
+			}
 			
 			// set CSS transitions very first thing
 			if (this._animatableSetCSS != this._last_transition_css) {
-				style["-webkit-transition"] = this._animatableSetCSS;
-				style["-moz-transition"] = this._animatableSetCSS;
+				layer.style["-webkit-transition"] = this._animatableSetCSS;
+				layer.style["-moz-transition"] = this._animatableSetCSS;
 				this._last_transition_css = this._animatableSetCSS;
 			}
+			
+			if (!this._animators["display-styles"])
+				this._animators["display-styles"] = {};
+			
+			// get timer
+			var timer = this._animators["display-styles"];
+			
+			// fire if there is already a pending one
+			if (timer.isQueued) {
+			//	timer.action.call(timer, 0);
+			}
+			
+			timer.holder = this;
+			timer.action = this._animatableApplyNonDisplayStyles;
+			timer.layer = layer;
+			timer.styles = styles;
+			this._animatableCurrentStyle = styles;
+			Animate.addTimer(timer);
+		},
+		
+		_animatableApplyNonDisplayStyles: function(){
+			var loop = SC.RunLoop.begin();
+			var layer = this.layer, styles = this.styles;
+			var styleHelpers = {
+				opacity: this.holder._style_opacity_helper
+				// more to be added here...
+			};
+			
+			var newLayout = {}, updateLayout = NO, style = layer.style;
 			
 			// we extract the layout portion so SproutCore can do its own thing...
 			for (var i in styles)
 			{
-				if (this._layoutStyles.indexOf(i) >= 0)
+				if (i == "display") continue;
+				if (this.holder._layoutStyles.indexOf(i) >= 0)
 				{
 					newLayout[i] = styles[i];
 					updateLayout = YES;
 					continue;
 				}
-				
 				if (styleHelpers[i]) styleHelpers[i](style, i, styles);
 			}
 			
 			// don't want to set because we don't want updateLayout... again.
 			if (updateLayout) {
-				var prev = this.layout;
-				this.layout = newLayout;
+				var prev = this.holder.layout;
+				this.holder.layout = newLayout;
 			
 				// set layout
-				this.notifyPropertyChange("layoutStyle");
+				this.holder.notifyPropertyChange("layoutStyle");
  
 				// apply the styles (but we have to mix it in, because we still have transitions, etc. that we set)
-				var ls = this.get("layoutStyle");
+				var ls = this.holder.get("layoutStyle");
 				for (var key in ls) {
 					if (SC.none(ls[key])) delete style[key];
-					else style[key] = ls[key];
+					else if (style[key] != ls[key]) style[key] = ls[key];
 				}
-				SC.mixin(style, this.get("layoutStyle"));
 				
 				// go back to previous
-				this.layout = prev;
+				this.holder.layout = prev;
 			}
-			
-			this._animatableCurrentStyle = styles;
+			loop.end();
 		},
 		
 		/**
@@ -584,6 +617,66 @@ Animate = SC.Object.create(
 		},
 		
 		/**
+		Solves cubic bezier curves. Basically, returns the Y for the supplied X.
+		
+		I have only a vague idea of how this works. But I do have a vague idea. It is originally
+		from WebKit's source code:
+		http://trac.webkit.org/browser/trunk/WebCore/platform/graphics/UnitBezier.h?rev=31808
+		*/
+		_solveBezierForT: function(ax, ay, bx, by, cx, cy, x, duration) {
+			// determines accuracy. Which means animation is slower for longer duration animations.
+			// that seems ironic, for some reason, but I don't know why.
+			
+			// SOME OPTIMIZATIONS COULD BE DONE, LIKE MOVING THIS INTO ITS OWN BIT AT BEGINNING OF ANIMATION.
+			var epsilon = 1.0 / (200.0 * duration);
+			
+			// a method I have NO idea about... Newton's method
+			var t0, t1, t2, x2, d2, i;
+			for (t2 = x, i = 0; i < 8; i++) {
+				x2 = ((ax * t2 + bx) * t2 + cx) * t2 - x; // sample curve x for t2, - x
+				if (Math.abs(x2) < epsilon) // obviously, this is determining the accuracy
+					return t2;
+				d2 = (3.0 * ax * t2 + 2.0 * bx) * t2 + cx;
+				if (Math.abs(d2) < Math.pow(10, -6)) break;
+				t2 = t2 - x2 / d2;
+			}
+			
+			// fall back to bisection
+			t0 = 0.0;
+			t1 = 1.0;
+			t2 = x;
+			if (t2 < t0) return t0;
+			if (t2 > t1) return t1;
+			while (t0 < t1) {
+				x2 = ((ax * t2 + bx) * t2 + cx) * t2;
+				if (Math.abs(x2 - x) < epsilon) return t2;
+				
+				if (x > x2) t0 = t2;
+				else t1 = t2;
+				
+				t2 = (t1 - t0) * .5 + t0;
+			}
+			
+			return t2; // on failure
+		},
+		
+		_solveBezier: function(p1x, p1y, p2x, p2y, x, duration) {
+			// calculate coefficients
+			var cx = 3.0 * p1x;
+			var bx = 3.0 * (p2x - p1x) - cx;
+			var ax = 1.0 - cx - bx;
+			
+			var cy = 3.0 * p1y;
+			var by = 3.0 * (p2y - p1y) - cy;
+			var ay = 1.0 - cy - by;
+			
+			var t = this._solveBezierForT(ax, ay, bx, by, cx, cy, x, duration);
+
+			// now calculate Y
+			return ((ay * t + by) * t + cy) * t;
+		},
+		
+		/**
 			Manages a single step in a single animation.
 			NOTE: this=>an animator hash
 		*/
@@ -609,7 +702,9 @@ Animate = SC.Object.create(
 			
 			// call interpolator (if any)
 			if (this.timingFunction) {
-				// do nothing for now...
+				// this may be slow, but...
+				var timing = this.timingFunction;
+				percent = this.holder._solveBezier(timing[0], timing[1], timing[2], timing[3], percent, d);
 			}
 			
 			// calculate new position			
@@ -672,7 +767,11 @@ Animate = SC.Object.create(
 			var percent = Math.min(c / d, 1);
 			
 			// call interpolator (if any)
-			if (this.interpolator) percent = this.interpolator(percent);
+			if (this.timingFunction) {
+				// this may be slow, but...
+				var timing = this.timingFunction;
+				percent = this.holder._solveBezier(timing[0], timing[1], timing[2], timing[3], percent, d);
+			}
 			
 			// calculate new position			
 			var value = Math.round((sv + (dv * percent)) * 100) / 100;
@@ -713,7 +812,11 @@ Animate = SC.Object.create(
 			var percent = Math.min(c / d, 1);
 			
 			// call interpolator (if any)
-			if (this.interpolator) percent = this.interpolator(percent);
+			if (this.timingFunction) {
+				// this may be slow, but...
+				var timing = this.timingFunction;
+				percent = this.holder._solveBezier(timing[0], timing[1], timing[2], timing[3], percent, d);
+			}
 			
 			// calculate new position			
 			var value = sv + (dv * percent);
