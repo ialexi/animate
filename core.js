@@ -45,6 +45,16 @@ Animate = SC.Object.create(
 	NAMESPACE: 'Animate',
 	VERSION: '0.1.0',
 	
+	TRANSITION_EASE: [0.25, 0.1, 0.25, 1.0],
+	
+	TRANSITION_LINEAR: [0.0, 0.0, 1.0, 1.0],
+	
+	TRANSITION_EASE_IN: [0.42, 0.0, 1.0, 1.0],
+	
+	TRANSITION_EASE_OUT: [0, 0, 0.58, 1.0],
+	
+	TRANSITION_EASE_IN_OUT: [0.42, 0, 0.58, 1.0],
+	
 	// I'm about to hack a very poor memory-wise, but hopefully fast CPU-wise, thingy.
 	baseTimer: {
 		next: null
@@ -378,7 +388,12 @@ Animate = SC.Object.create(
 				// If there is an available CSS transition, use that.
 				if (Animate.enableCSSTransitions && this._cssTransitionFor[i])
 				{
-					cssTransitions.push(this._cssTransitionFor[i] + " " + this.transitions[i].duration + "s linear");
+					var timing_function = "linear";
+					if (this.transitions[i].timing) {
+						var timing = this.transitions[i].timing;
+						timing_function = "cubic-bezier(" + timing[0] + " " + timing[1] + " " + timing[2] + " " + timing[3] + ")";
+					}
+					cssTransitions.push(this._cssTransitionFor[i] + " " + this.transitions[i].duration + "s " + timing_function);
 					
 					// we can just set it as part of the starting point
 					startingPoint[i] = newStyle[i];
@@ -429,6 +444,7 @@ Animate = SC.Object.create(
 				a.action = applier;
 				a.style = layer.style;
 				a.holder = this;
+				a.timingFunction = this.this.transitions[i].timing;
 				
 				// add timer
 				if (!a.going) this._animationsToStart[i] = a;
@@ -592,7 +608,9 @@ Animate = SC.Object.create(
 			var percent = Math.min(c / d, 1);
 			
 			// call interpolator (if any)
-			if (this.interpolator) percent = this.interpolator(percent);
+			if (this.timingFunction) {
+				// do nothing for now...
+			}
 			
 			// calculate new position			
 			var value = Math.floor(sv + (dv * percent));
