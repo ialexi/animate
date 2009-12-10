@@ -47,14 +47,18 @@ Animate = SC.Object.create(
 	NAMESPACE: 'Animate',
 	VERSION: '0.1.0',
 	
+	// CSS-only
+	TRANSITION_NONE: "linear",
+	TRANSITION_CSS_EASE: "ease",
+	TRANSITION_CSS_EASE_IN: "ease-in",
+	TRANSITION_CSS_EASE_OUT: "ease-out",
+	TRANSITION_CSS_EASE_OUT: "ease-in-out",
+	
+	// JavaScript-enabled
 	TRANSITION_EASE: [0.25, 0.1, 0.25, 1.0],
-	
 	TRANSITION_LINEAR: [0.0, 0.0, 1.0, 1.0],
-	
 	TRANSITION_EASE_IN: [0.42, 0.0, 1.0, 1.0],
-	
 	TRANSITION_EASE_OUT: [0, 0, 0.58, 1.0],
-	
 	TRANSITION_EASE_IN_OUT: [0.42, 0, 0.58, 1.0],
 	
 	defaultTimingFunction: null, // you can change to TRANSITION_EASE, etc., but that may impact performance.
@@ -369,7 +373,11 @@ Animate = SC.Object.create(
 					var timing_function = "linear";
 					if (this.transitions[i].timing || Animate.defaultTimingFunction) {
 						var timing = this.transitions[i].timing || Animate.defaultTimingFunction;
-						timing_function = "cubic-bezier(" + timing[0] + ", " + timing[1] + ", " + timing[2] + ", " + timing[3] + ")";
+						if (SC.typeOf(timig) != SC.T_STRING) {
+							timing_function = "cubic-bezier(" + timing[0] + ", " + timing[1] + ", " + timing[2] + ", " + timing[3] + ")";
+						} else {
+							timing_function = timing;
+						}
 					}
 					
 					// add transition
@@ -454,7 +462,9 @@ Animate = SC.Object.create(
 				a.action = applier;
 				a.style = layer.style;
 				a.holder = this;
-				a.timingFunction = this.transitions[i].timing || Animate.defaultTimingFunction;
+				
+				var timing = this.transitions[i].timing || Animate.defaultTimingFunction;
+				if (timing && SC.typeOf(timing) != SC.T_STRING) a.timingFunction = timing;
 				
 				// add timer
 				if (!a.going) this._animationsToStart[i] = a;
@@ -715,7 +725,11 @@ Animate = SC.Object.create(
 			this.style[this.property] = value + "px";
 			
 			if (t < e) Animate.addTimer(this);
-			else this.going = false;
+			else {
+				this.going = false;
+				this.styles = null;
+				this.layer = null;
+			}
 		},
 		
 		_animateTickDisplay: function(t)
@@ -740,6 +754,8 @@ Animate = SC.Object.create(
 			this.style[this.property] = this.endValue;
 			
 			this.going = false;
+			this.styles = null;
+			this.layer = null;
 		},
 		
 		/**
@@ -786,7 +802,11 @@ Animate = SC.Object.create(
 			}
 			
 			if (t < e) Animate.addTimer(this);
-			else this.going = false;
+			else {
+				this.going = false;
+				this.styles = null;
+				this.layer = null;
+			}
 		},
 		
 		// NOTE: I tested this with two separate functions (one for each X and Y)
@@ -836,7 +856,11 @@ Animate = SC.Object.create(
 			this.style[style] = Math.round(value - (this.holder._animatableCurrentStyle[widthOrHeight] / 2)) + "px";
 			
 			if (t < e) Animate.addTimer(this);
-			else this.going = false;
+			else {
+				this.going = false;
+				this.styles = null;
+				this.layer = null;
+			}
 		}
 	}
 
