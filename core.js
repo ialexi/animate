@@ -444,7 +444,7 @@ Animate = SC.Object.create(
 				a.action = applier;
 				a.style = layer.style;
 				a.holder = this;
-				a.timingFunction = this.this.transitions[i].timing;
+				a.timingFunction = this.transitions[i].timing;
 				
 				// add timer
 				if (!a.going) this._animationsToStart[i] = a;
