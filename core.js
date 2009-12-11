@@ -373,7 +373,7 @@ Animate = SC.Object.create(
 					var timing_function = "linear";
 					if (this.transitions[i].timing || Animate.defaultTimingFunction) {
 						var timing = this.transitions[i].timing || Animate.defaultTimingFunction;
-						if (SC.typeOf(timig) != SC.T_STRING) {
+						if (SC.typeOf(timing) != SC.T_STRING) {
 							timing_function = "cubic-bezier(" + timing[0] + ", " + timing[1] + ", " + timing[2] + ", " + timing[3] + ")";
 						} else {
 							timing_function = timing;
